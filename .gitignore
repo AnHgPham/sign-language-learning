@@ -105,3 +105,18 @@ temp/
 *.db
 *.sqlite
 *.sqlite3
+
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+
+# YOLO model files (too large for git)
+server/ml_models/*.pt
+server/ml_models/model_info.json
+
