@@ -1,6 +1,18 @@
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { 
+  InsertUser, 
+  users,
+  signVocabulary,
+  SignVocabulary,
+  InsertSignVocabulary,
+  userProgress,
+  UserProgress,
+  InsertUserProgress,
+  practiceSessions,
+  PracticeSession,
+  InsertPracticeSession
+} from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -85,4 +97,79 @@ export async function getUser(id: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// Sign Vocabulary queries
+export async function getAllSignVocabulary(): Promise<SignVocabulary[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(signVocabulary);
+}
+
+export async function getSignVocabularyByClassId(classId: string): Promise<SignVocabulary | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(signVocabulary).where(eq(signVocabulary.classId, classId)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function insertSignVocabulary(sign: InsertSignVocabulary): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(signVocabulary).values(sign);
+}
+
+// User Progress queries
+export async function getUserProgress(userId: string): Promise<UserProgress[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(userProgress).where(eq(userProgress.userId, userId));
+}
+
+export async function getUserProgressForSign(userId: string, signId: string): Promise<UserProgress | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(userProgress)
+    .where(and(
+      eq(userProgress.userId, userId),
+      eq(userProgress.signId, signId)
+    ))
+    .limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function upsertUserProgress(progress: InsertUserProgress): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  
+  await db.insert(userProgress).values(progress).onDuplicateKeyUpdate({
+    set: {
+      attempts: progress.attempts,
+      successCount: progress.successCount,
+      lastPracticed: new Date(),
+      proficiencyLevel: progress.proficiencyLevel,
+    },
+  });
+}
+
+// Practice Session queries
+export async function createPracticeSession(session: InsertPracticeSession): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(practiceSessions).values(session);
+}
+
+export async function updatePracticeSession(
+  sessionId: string,
+  updates: Partial<PracticeSession>
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(practiceSessions)
+    .set(updates)
+    .where(eq(practiceSessions.id, sessionId));
+}
+
+export async function getUserSessions(userId: string): Promise<PracticeSession[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(practiceSessions).where(eq(practiceSessions.userId, userId));
+}

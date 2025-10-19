@@ -1,0 +1,23 @@
+{
+  "model_type": "detect",
+  "num_classes": 17,
+  "classes": {
+    "0": "an",
+    "1": "ban",
+    "2": "ban_be",
+    "3": "bao_nhieu",
+    "4": "cai_gi",
+    "5": "cam_on",
+    "6": "gia_dinh",
+    "7": "khat",
+    "8": "khoe",
+    "9": "lam_on",
+    "10": "nhu_the_nao",
+    "11": "tam_biet",
+    "12": "ten_la",
+    "13": "toi",
+    "14": "tuoi",
+    "15": "xin_chao",
+    "16": "xin_loi"
+  }
+}
