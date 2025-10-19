@@ -6,10 +6,22 @@ import { z } from "zod";
 import { runYoloInference, getSignLanguageClasses } from "./yoloInference";
 import * as db from "./db";
 import { randomUUID } from "crypto";
+import { TRPCError } from "@trpc/server";
+
+// Simple in-memory user storage (for demo purposes)
+// In production, this should be in a database
+const users = new Map<string, { id: string; email: string; password: string; name: string }>();
+
+// Add demo user
+users.set('demo@example.com', {
+  id: '1',
+  email: 'demo@example.com',
+  password: 'demo123', // In production, this should be hashed
+  name: 'Demo User'
+});
 
 export const appRouter = router({
   system: systemRouter,
-
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
@@ -19,8 +31,69 @@ export const appRouter = router({
         success: true,
       } as const;
     }),
-  }),
+    login: publicProcedure
+      .input(
+        z.object({
+          email: z.string().email(),
+          password: z.string().min(1),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const user = users.get(input.email);
+        
+        if (!user || user.password !== input.password) {
+          throw new TRPCError({
+            code: 'UNAUTHORIZED',
+            message: 'Email hoặc mật khẩu không đúng',
+          });
+        }
 
+        // Set session cookie
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, user.id, { ...cookieOptions, maxAge: 30 * 24 * 60 * 60 * 1000 });
+
+        return {
+          success: true,
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+          },
+        };
+      }),
+    register: publicProcedure
+      .input(
+        z.object({
+          email: z.string().email(),
+          password: z.string().min(6),
+          name: z.string().min(1),
+        })
+      )
+      .mutation(async ({ input }) => {
+        // Check if user already exists
+        if (users.has(input.email)) {
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: 'Email đã được sử dụng',
+          });
+        }
+
+        // Create new user
+        const newUser = {
+          id: String(users.size + 1),
+          email: input.email,
+          password: input.password, // In production, hash this
+          name: input.name,
+        };
+
+        users.set(input.email, newUser);
+
+        return {
+          success: true,
+          message: 'Đăng ký thành công! Vui lòng đăng nhập.',
+        };
+      }),
+  }),
   // Sign Language Detection
   detection: router({
     // Run YOLO inference on an image
@@ -39,7 +112,6 @@ export const appRouter = router({
       return getSignLanguageClasses();
     }),
   }),
-
   // Vocabulary management
   vocabulary: router({
     // Get all sign vocabulary
@@ -54,7 +126,6 @@ export const appRouter = router({
         return await db.getSignVocabularyByClassId(input.classId);
       }),
   }),
-
   // User progress tracking
   progress: router({
     // Get user's progress
@@ -97,7 +168,6 @@ export const appRouter = router({
         return { success: true };
       }),
   }),
-
   // Practice sessions
   session: router({
     // Create new practice session
@@ -144,3 +214,4 @@ export const appRouter = router({
 });
 
 export type AppRouter = typeof appRouter;
+

@@ -1,6 +1,3 @@
-import { spawn } from "child_process";
-import { join } from "path";
-
 export interface Detection {
   class_id: number;
   class_name: string;
@@ -17,12 +14,15 @@ export interface InferenceResult {
   success: boolean;
   detections: Detection[];
   count: number;
+  prediction?: string;
   error?: string;
 }
 
+const YOLO_SERVER_URL = 'http://localhost:5000';
+
 /**
- * Run YOLO inference on a base64 encoded image
- * @param imageBase64 - Base64 encoded image string (without data:image prefix)
+ * Run YOLO inference on a base64 encoded image via HTTP API
+ * @param imageBase64 - Base64 encoded image string (with or without data:image prefix)
  * @param confidence - Minimum confidence threshold (0-1)
  * @returns Promise with detection results
  */
@@ -30,97 +30,82 @@ export async function runYoloInference(
   imageBase64: string,
   confidence: number = 0.5
 ): Promise<InferenceResult> {
-  return new Promise((resolve, reject) => {
-    const pythonScript = join(__dirname, "ml_models", "yolo_service.py");
+  try {
+    console.log("[YOLO] Sending request to HTTP server, confidence:", confidence);
     
-    // Spawn Python process
-    const python = spawn("python3.11", [pythonScript]);
-    
-    let stdout = "";
-    let stderr = "";
-    
-    // Collect stdout
-    python.stdout.on("data", (data) => {
-      stdout += data.toString();
+    const response = await fetch(`${YOLO_SERVER_URL}/detect`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        image: imageBase64,
+        confidence: confidence
+      })
     });
     
-    // Collect stderr
-    python.stderr.on("data", (data) => {
-      stderr += data.toString();
-    });
-    
-    // Handle process completion
-    python.on("close", (code) => {
-      if (code !== 0) {
-        console.error("[YOLO] Python process error:", stderr);
-        resolve({
-          success: false,
-          detections: [],
-          count: 0,
-          error: stderr || "Python process failed"
-        });
-        return;
-      }
-      
-      try {
-        const result: InferenceResult = JSON.parse(stdout);
-        resolve(result);
-      } catch (error) {
-        console.error("[YOLO] Failed to parse result:", error);
-        resolve({
-          success: false,
-          detections: [],
-          count: 0,
-          error: "Failed to parse inference result"
-        });
-      }
-    });
-    
-    // Handle process error
-    python.on("error", (error) => {
-      console.error("[YOLO] Failed to spawn Python process:", error);
-      resolve({
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("[YOLO] HTTP error:", response.status, errorText);
+      return {
         success: false,
         detections: [],
         count: 0,
-        error: error.message
-      });
-    });
+        error: `HTTP ${response.status}: ${errorText}`
+      };
+    }
     
-    // Send input data to Python process
-    const input = JSON.stringify({
-      image: imageBase64,
-      confidence: confidence
-    });
+    const result: InferenceResult = await response.json();
+    console.log("[YOLO] Detection result:", result);
     
-    python.stdin.write(input);
-    python.stdin.end();
-  });
+    // Add prediction text for UI
+    if (result.success && result.detections && result.detections.length > 0) {
+      const topDetection = result.detections[0];
+      result.prediction = `${topDetection.class_name} (${(topDetection.confidence * 100).toFixed(1)}%)`;
+    }
+    
+    return result;
+    
+  } catch (error) {
+    console.error("[YOLO] Request error:", error);
+    return {
+      success: false,
+      detections: [],
+      count: 0,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
 }
 
 /**
- * Get list of all supported sign language classes
+ * Check if YOLO server is healthy
  */
-export function getSignLanguageClasses(): Record<string, string> {
-  // This matches the model_info.json
-  return {
-    "0": "an",
-    "1": "ban",
-    "2": "ban_be",
-    "3": "bao_nhieu",
-    "4": "cai_gi",
-    "5": "cam_on",
-    "6": "gia_dinh",
-    "7": "khat",
-    "8": "khoe",
-    "9": "lam_on",
-    "10": "nhu_the_nao",
-    "11": "tam_biet",
-    "12": "ten_la",
-    "13": "toi",
-    "14": "tuoi",
-    "15": "xin_chao",
-    "16": "xin_loi"
-  };
+export async function checkYoloServerHealth(): Promise<boolean> {
+  try {
+    const response = await fetch(`${YOLO_SERVER_URL}/health`);
+    const data = await response.json();
+    return data.status === 'ok' && data.model_loaded === true;
+  } catch (error) {
+    console.error("[YOLO] Health check failed:", error);
+    return false;
+  }
+}
+
+/**
+ * Get list of all sign language classes
+ */
+export async function getSignLanguageClasses(): Promise<string[]> {
+  try {
+    const response = await fetch(`${YOLO_SERVER_URL}/classes`);
+    const data = await response.json();
+    return Object.values(data.classes);
+  } catch (error) {
+    console.error("[YOLO] Failed to get classes:", error);
+    // Fallback to default classes
+    return [
+      "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+      "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"
+    ];
+  }
 }
 

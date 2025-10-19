@@ -7,6 +7,8 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import RealtimeDetection from "./pages/RealtimeDetection";
 import PracticeMode from "./pages/PracticeMode";
+import Login from "./pages/Login";
+import Register from "./pages/Register";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -15,6 +17,8 @@ function Router() {
       <Route path={"/"} component={Home} />
       <Route path="/realtime" component={RealtimeDetection} />
       <Route path="/practice" component={PracticeMode} />
+      <Route path="/login" component={Login} />
+      <Route path="/register" component={Register} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />

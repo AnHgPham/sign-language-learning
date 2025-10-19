@@ -40,7 +40,7 @@ export default function Home() {
             </div>
           ) : (
             <Button asChild>
-              <a href={getLoginUrl()}>Đăng nhập</a>
+              <Link href="/login">Đăng nhập</Link>
             </Button>
           )}
         </div>
