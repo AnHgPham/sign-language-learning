@@ -1,32 +1,23 @@
 import { useState } from 'react';
 import { useLocation } from 'wouter';
-import { trpc } from '../lib/trpc';
+import { useAuth } from '@/_core/hooks/useAuth';
 
 export default function Register() {
   const [, setLocation] = useLocation();
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-
-  const registerMutation = trpc.auth.register.useMutation({
-    onSuccess: () => {
-      setLocation('/login');
-    },
-    onError: (error) => {
-      setError(error.message || 'Đăng ký thất bại');
-      setIsLoading(false);
-    },
-  });
+  const { register } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
-    if (!email || !password || !confirmPassword || !name) {
+    if (!username || !email || !password || !confirmPassword) {
       setError('Vui lòng nhập đầy đủ thông tin');
       setIsLoading(false);
       return;
@@ -44,16 +35,23 @@ export default function Register() {
       return;
     }
 
-    registerMutation.mutate({ email, password, name });
+    try {
+      await register(email, password, username);
+      setLocation('/');
+    } catch (err: any) {
+      setError(err.message || 'Đăng ký thất bại');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         {/* Header */}
         <div className="text-center">
           <button
-            onClick={() => setLocation('/')}
+            onClick={() => setLocation('/') }
             className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 mb-6"
           >
             <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -65,7 +63,7 @@ export default function Register() {
             Đăng ký
           </h2>
           <p className="text-gray-600">
-            Tạo tài khoản mới để bắt đầu học
+            Tạo tài khoản để bắt đầu học ngôn ngữ ký hiệu
           </p>
         </div>
 
@@ -79,20 +77,21 @@ export default function Register() {
               </div>
             )}
 
-            {/* Name Field */}
+            {/* Username Field */}
             <div>
-              <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
-                Họ và tên
+              <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-2">
+                Tên người dùng
               </label>
               <input
-                id="name"
-                name="name"
+                id="username"
+                name="username"
                 type="text"
+                autoComplete="username"
                 required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="appearance-none relative block w-full px-4 py-3 border-2 border-gray-200 placeholder-gray-400 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                placeholder="Nguyễn Văn A"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="appearance-none relative block w-full px-4 py-3 border-2 border-gray-200 placeholder-gray-400 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                placeholder="username"
               />
             </div>
 
@@ -109,7 +108,7 @@ export default function Register() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="appearance-none relative block w-full px-4 py-3 border-2 border-gray-200 placeholder-gray-400 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                className="appearance-none relative block w-full px-4 py-3 border-2 border-gray-200 placeholder-gray-400 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
                 placeholder="your@email.com"
               />
             </div>
@@ -127,10 +126,9 @@ export default function Register() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="appearance-none relative block w-full px-4 py-3 border-2 border-gray-200 placeholder-gray-400 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                className="appearance-none relative block w-full px-4 py-3 border-2 border-gray-200 placeholder-gray-400 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
                 placeholder="••••••••"
               />
-              <p className="mt-1 text-xs text-gray-500">Tối thiểu 6 ký tự</p>
             </div>
 
             {/* Confirm Password Field */}
@@ -146,7 +144,7 @@ export default function Register() {
                 required
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="appearance-none relative block w-full px-4 py-3 border-2 border-gray-200 placeholder-gray-400 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                className="appearance-none relative block w-full px-4 py-3 border-2 border-gray-200 placeholder-gray-400 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
                 placeholder="••••••••"
               />
             </div>
@@ -156,7 +154,7 @@ export default function Register() {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-xl text-white bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl"
+                className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-xl text-white bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl"
               >
                 {isLoading ? (
                   <span className="flex items-center">
@@ -175,11 +173,11 @@ export default function Register() {
             {/* Login Link */}
             <div className="text-center">
               <p className="text-sm text-gray-600">
-                Đã có tài khoản?{' '}
+                Đã có tài khoản?{' '} 
                 <button
                   type="button"
-                  onClick={() => setLocation('/login')}
-                  className="font-medium text-blue-600 hover:text-blue-500"
+                  onClick={() => setLocation('/ login')}
+                  className="font-medium text-purple-600 hover:text-purple-500"
                 >
                   Đăng nhập ngay
                 </button>
@@ -191,4 +189,3 @@ export default function Register() {
     </div>
   );
 }
-

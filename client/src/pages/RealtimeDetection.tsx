@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { trpc } from '../lib/trpc';
 import { useLocation } from 'wouter';
+import { detectionApi } from '../lib/api';
 
 export default function RealtimeDetection() {
   const [, setLocation] = useLocation();
@@ -11,42 +11,27 @@ export default function RealtimeDetection() {
   const [detectionResult, setDetectionResult] = useState<string>('Chưa phát hiện ký hiệu nào');
   const [fps, setFps] = useState(0);
   const [detections, setDetections] = useState<any[]>([]);
+  const [isDetecting, setIsDetecting] = useState(false);
   const streamRef = useRef<MediaStream | null>(null);
   const animationFrameRef = useRef<number>();
   const isStreamingRef = useRef(false);
-
-  const detectMutation = trpc.detection.detect.useMutation({
-    onSuccess: (data) => {
-      if (data.success && data.detections && data.detections.length > 0) {
-        setDetectionResult(data.prediction || 'Không nhận diện được');
-        setDetections(data.detections);
-      } else {
-        setDetectionResult('Không phát hiện ký hiệu');
-        setDetections([]);
-      }
-    },
-    onError: (error) => {
-      console.error('[Detection] Error:', error);
-      setDetectionResult('Lỗi nhận diện');
-      setDetections([]);
-    },
-  });
+  const lastDetectionTimeRef = useRef<number>(0);
+  const fpsCounterRef = useRef<number>(0);
+  const fpsTimerRef = useRef<number>(0);
 
   const startCamera = async () => {
     try {
       console.log('[Camera] Starting camera...');
       setError('');
-
-      // Stop existing stream if any
+      
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
 
-      // Request camera access
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { ideal: 640 },
+          height: { ideal: 480 },
           facingMode: 'user'
         },
         audio: false
@@ -55,15 +40,11 @@ export default function RealtimeDetection() {
       console.log('[Camera] Stream obtained:', stream);
       streamRef.current = stream;
 
-      // Attach stream to video element
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-
-        // Wait for metadata to load
+        
         videoRef.current.onloadedmetadata = async () => {
           console.log('[Camera] Metadata loaded');
-          
-          // Play video
           await videoRef.current!.play();
           console.log('[Camera] Video playing');
           
@@ -82,18 +63,15 @@ export default function RealtimeDetection() {
   const stopCamera = () => {
     console.log('[Camera] Stopping camera...');
     
-    // Stop animation frame
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
     }
 
-    // Stop media stream
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
 
-    // Clear video element
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
@@ -106,199 +84,137 @@ export default function RealtimeDetection() {
   };
 
   const startDetection = () => {
-    let lastTime = performance.now();
-    let frameCount = 0;
-
-    const detectFrame = async () => {
-      if (!isStreamingRef.current || !videoRef.current || !canvasRef.current) {
-        return;
-      }
-
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
-
-      if (!ctx || video.readyState !== video.HAVE_ENOUGH_DATA) {
-        animationFrameRef.current = requestAnimationFrame(detectFrame);
-        return;
-      }
-
-      // Set canvas size to match video
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-
-      // Draw video frame to canvas
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-      // Draw bounding boxes with improved styling
-      if (detections.length > 0) {
-        detections.forEach((detection, index) => {
-          const { bbox, class_name, confidence } = detection;
-          
-          // Calculate box dimensions
-          const boxWidth = bbox.x2 - bbox.x1;
-          const boxHeight = bbox.y2 - bbox.y1;
-          
-          // Use different colors for multiple detections
-          const colors = ['#00ff00', '#00ffff', '#ffff00', '#ff00ff'];
-          const color = colors[index % colors.length];
-          
-          // Draw semi-transparent fill
-          ctx.fillStyle = color + '20';
-          ctx.fillRect(bbox.x1, bbox.y1, boxWidth, boxHeight);
-          
-          // Draw box border with glow effect
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 3;
-          ctx.shadowColor = color;
-          ctx.shadowBlur = 10;
-          ctx.strokeRect(bbox.x1, bbox.y1, boxWidth, boxHeight);
-          ctx.shadowBlur = 0;
-          
-          // Draw corner markers for better visibility
-          const markerSize = 20;
-          ctx.lineWidth = 4;
-          // Top-left corner
-          ctx.beginPath();
-          ctx.moveTo(bbox.x1, bbox.y1 + markerSize);
-          ctx.lineTo(bbox.x1, bbox.y1);
-          ctx.lineTo(bbox.x1 + markerSize, bbox.y1);
-          ctx.stroke();
-          // Top-right corner
-          ctx.beginPath();
-          ctx.moveTo(bbox.x2 - markerSize, bbox.y1);
-          ctx.lineTo(bbox.x2, bbox.y1);
-          ctx.lineTo(bbox.x2, bbox.y1 + markerSize);
-          ctx.stroke();
-          // Bottom-left corner
-          ctx.beginPath();
-          ctx.moveTo(bbox.x1, bbox.y2 - markerSize);
-          ctx.lineTo(bbox.x1, bbox.y2);
-          ctx.lineTo(bbox.x1 + markerSize, bbox.y2);
-          ctx.stroke();
-          // Bottom-right corner
-          ctx.beginPath();
-          ctx.moveTo(bbox.x2 - markerSize, bbox.y2);
-          ctx.lineTo(bbox.x2, bbox.y2);
-          ctx.lineTo(bbox.x2, bbox.y2 - markerSize);
-          ctx.stroke();
-          
-          // Draw label with improved styling
-          const label = `${class_name} ${(confidence * 100).toFixed(1)}%`;
-          ctx.font = 'bold 18px Arial';
-          const textMetrics = ctx.measureText(label);
-          const textWidth = textMetrics.width;
-          const textHeight = 24;
-          const padding = 8;
-          
-          // Draw label background with rounded corners
-          const labelX = bbox.x1;
-          const labelY = bbox.y1 - textHeight - padding * 2 - 5;
-          
-          ctx.fillStyle = color;
-          ctx.shadowColor = '#000000';
-          ctx.shadowBlur = 5;
-          ctx.beginPath();
-          ctx.roundRect(labelX, labelY, textWidth + padding * 2, textHeight + padding * 2, 5);
-          ctx.fill();
-          ctx.shadowBlur = 0;
-          
-          // Draw label text
-          ctx.fillStyle = '#000000';
-          ctx.font = 'bold 18px Arial';
-          ctx.fillText(label, labelX + padding, labelY + textHeight);
-        });
-      }
-
-      // Get image data and send to backend (every 15 frames to avoid overload)
-      if (frameCount % 15 === 0) {
-        const imageData = canvas.toDataURL('image/jpeg', 0.8);
-        detectMutation.mutate({ image: imageData });
-      }
-
-      // Calculate FPS
-      frameCount++;
-      const currentTime = performance.now();
-      if (currentTime - lastTime >= 1000) {
-        setFps(frameCount);
-        frameCount = 0;
-        lastTime = currentTime;
-      }
-
-      // Continue loop
-      animationFrameRef.current = requestAnimationFrame(detectFrame);
-    };
+    console.log('[Detection] Starting detection loop...');
+    lastDetectionTimeRef.current = Date.now();
+    fpsCounterRef.current = 0;
+    
+    fpsTimerRef.current = window.setInterval(() => {
+      setFps(fpsCounterRef.current);
+      fpsCounterRef.current = 0;
+    }, 1000);
 
     detectFrame();
+  };
+
+  const detectFrame = async () => {
+    if (!isStreamingRef.current || !videoRef.current || !canvasRef.current) {
+      return;
+    }
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+
+    if (!ctx || video.readyState !== video.HAVE_ENOUGH_DATA) {
+      animationFrameRef.current = requestAnimationFrame(detectFrame);
+      return;
+    }
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const now = Date.now();
+    const timeSinceLastDetection = now - lastDetectionTimeRef.current;
+
+    // Only detect every 800ms to improve performance
+    if (timeSinceLastDetection >= 800 && !isDetecting) {
+      lastDetectionTimeRef.current = now;
+      setIsDetecting(true);
+
+      const imageData = canvas.toDataURL('image/jpeg', 0.6);
+      const base64Image = imageData.split(',')[1];
+
+      try {
+        const result = await detectionApi.detect(base64Image, 0.4);
+        
+        if (result.detections && result.detections.length > 0) {
+          setDetectionResult(result.detections[0].class_name || 'Không nhận diện được');
+          setDetections(result.detections);
+
+          // Draw bounding boxes and labels
+          result.detections.forEach((det: any) => {
+            if (det.bbox) {
+              const [x1, y1, x2, y2] = det.bbox;
+              
+              // Draw green rectangle
+              ctx.strokeStyle = '#00ff00';
+              ctx.lineWidth = 4;
+              ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+              // Draw label background
+              const label = `${det.class_name} ${(det.confidence * 100).toFixed(1)}%`;
+              ctx.font = 'bold 20px Arial';
+              const textMetrics = ctx.measureText(label);
+              const textWidth = textMetrics.width;
+              
+              ctx.fillStyle = '#00ff00';
+              ctx.fillRect(x1, y1 - 35, textWidth + 20, 35);
+
+              // Draw label text
+              ctx.fillStyle = '#000000';
+              ctx.fillText(label, x1 + 10, y1 - 10);
+            }
+          });
+        } else {
+          setDetectionResult('Không phát hiện ký hiệu');
+          setDetections([]);
+        }
+
+        fpsCounterRef.current++;
+      } catch (error) {
+        console.error('[Detection] Error:', error);
+      } finally {
+        setIsDetecting(false);
+      }
+    }
+
+    animationFrameRef.current = requestAnimationFrame(detectFrame);
   };
 
   useEffect(() => {
     return () => {
       stopCamera();
+      if (fpsTimerRef.current) {
+        clearInterval(fpsTimerRef.current);
+      }
     };
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 py-8 px-4">
-      <div className="max-w-7xl mx-auto">
-        {/* Header with improved styling */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex-1">
-              <h1 className="text-4xl font-bold text-gray-900 mb-2 flex items-center gap-3">
-                <span className="text-blue-600">🎥</span>
-                Nhận diện Realtime
-              </h1>
-              <p className="text-gray-600 text-lg">Bật camera và thực hiện các ký hiệu để AI nhận diện ngôn ngữ ký hiệu</p>
-            </div>
-            <button
-              onClick={() => setLocation('/')}
-              className="px-6 py-3 bg-white text-gray-700 rounded-xl hover:bg-gray-50 transition-all shadow-md hover:shadow-lg flex items-center gap-2 font-medium border-2 border-gray-200 hover:border-gray-300"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-              </svg>
-              Trang chủ
-            </button>
-          </div>
-          
-          {/* Status Bar */}
-          <div className="bg-white rounded-xl shadow-md p-4 flex items-center justify-between">
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-2">
-                <div className={`w-3 h-3 rounded-full ${isStreaming ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`} />
-                <span className="text-sm font-medium text-gray-700">
-                  {isStreaming ? 'Camera đang hoạt động' : 'Camera chưa bật'}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className={`w-3 h-3 rounded-full ${detectMutation.isPending ? 'bg-yellow-500 animate-pulse' : 'bg-gray-300'}`} />
-                <span className="text-sm font-medium text-gray-700">
-                  {detectMutation.isPending ? 'Đang xử lý...' : 'Sẵn sàng'}
-                </span>
-              </div>
-              {isStreaming && (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-gray-700">FPS:</span>
-                  <span className="text-sm font-mono font-bold text-blue-600">{fps}</span>
-                </div>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              {detections.length > 0 && (
-                <span className="text-sm font-medium text-green-600 bg-green-50 px-3 py-1 rounded-full">
-                  {detections.length} ký hiệu được phát hiện
-                </span>
-              )}
-            </div>
-          </div>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 py-8">
+      <div className="container mx-auto px-4">
+        <div className="mb-8 text-center">
+          <button
+            onClick={() => setLocation('/', { replace: true })}
+            className="mb-4 inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 transition-colors font-medium"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Quay lại
+          </button>
+          <h1 className="text-4xl md:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 mb-3">
+            Nhận Diện Realtime
+          </h1>
+          <p className="text-gray-600 text-lg">Sử dụng camera để nhận diện ngôn ngữ ký hiệu trực tiếp</p>
         </div>
 
+        {error && (
+          <div className="mb-6 bg-red-50 border-2 border-red-200 text-red-700 px-6 py-4 rounded-xl shadow-md">
+            <div className="flex items-center gap-3">
+              <svg className="w-6 h-6 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+              <span className="font-medium">{error}</span>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Video Panel with improved styling */}
           <div className="lg:col-span-2">
-            <div className="bg-white rounded-2xl shadow-xl overflow-hidden border-2 border-gray-100">
-              <div className="relative bg-black" style={{ paddingBottom: '56.25%' }}>
+            <div className="bg-white rounded-2xl shadow-xl p-6 border-2 border-gray-100">
+              <div className="relative bg-gray-900 rounded-xl overflow-hidden shadow-inner" style={{ aspectRatio: '16/9' }}>
                 <video
                   ref={videoRef}
                   className="absolute inset-0 w-full h-full object-cover"
@@ -309,35 +225,27 @@ export default function RealtimeDetection() {
                   ref={canvasRef}
                   className="absolute inset-0 w-full h-full object-cover"
                 />
-                
-                {/* Error Message */}
-                {error && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-70 backdrop-blur-sm">
-                    <div className="bg-red-500 text-white px-8 py-6 rounded-2xl max-w-md text-center shadow-2xl">
-                      <svg className="w-12 h-12 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                {!isStreaming && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-gray-800 bg-opacity-50">
+                    <div className="text-center text-white">
+                      <svg className="w-20 h-20 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                       </svg>
-                      <p className="font-medium">{error}</p>
+                      <p className="text-xl font-medium">Camera chưa được bật</p>
                     </div>
                   </div>
                 )}
-
-                {/* Placeholder */}
-                {!isStreaming && !error && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800">
-                    <div className="text-center text-gray-300">
-                      <svg className="w-32 h-32 mx-auto mb-6 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                      </svg>
-                      <p className="text-xl font-medium">Nhấn "Bật Camera" để bắt đầu</p>
-                      <p className="text-sm mt-2 opacity-75">Hệ thống sẽ tự động nhận diện ký hiệu của bạn</p>
+                {isStreaming && (
+                  <div className="absolute top-4 right-4 bg-black bg-opacity-70 text-white px-4 py-2 rounded-lg backdrop-blur-sm">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                      <span className="font-mono font-medium">{fps} FPS</span>
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* Controls with improved styling */}
-              <div className="p-6 bg-gradient-to-r from-gray-50 to-gray-100 border-t-2 border-gray-200">
+              <div className="mt-6">
                 {!isStreaming ? (
                   <button
                     onClick={startCamera}
@@ -363,7 +271,6 @@ export default function RealtimeDetection() {
             </div>
           </div>
 
-          {/* Results Panel with improved styling */}
           <div className="lg:col-span-1">
             <div className="bg-white rounded-2xl shadow-xl p-6 border-2 border-gray-100">
               <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-2">
@@ -371,7 +278,6 @@ export default function RealtimeDetection() {
                 Kết quả nhận diện
               </h2>
               
-              {/* Detection Result with improved styling */}
               <div className="mb-6 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border-2 border-blue-100">
                 <p className="text-sm text-gray-600 mb-3 font-medium">Ký hiệu nhận diện:</p>
                 <p className="text-3xl font-bold text-blue-600 break-words">{detectionResult}</p>
@@ -389,7 +295,6 @@ export default function RealtimeDetection() {
                 )}
               </div>
 
-              {/* Instructions with improved styling */}
               <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-5 border-2 border-purple-100">
                 <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
                   <span className="text-lg">📋</span>
@@ -415,7 +320,6 @@ export default function RealtimeDetection() {
                 </ol>
               </div>
 
-              {/* Tips section */}
               <div className="mt-4 bg-yellow-50 rounded-xl p-4 border-2 border-yellow-200">
                 <h3 className="font-bold text-gray-900 mb-2 flex items-center gap-2 text-sm">
                   <span>💡</span>
@@ -434,4 +338,3 @@ export default function RealtimeDetection() {
     </div>
   );
 }
-

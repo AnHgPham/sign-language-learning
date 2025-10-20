@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useLocation } from 'wouter';
-import { trpc } from '../lib/trpc';
+import { useAuth } from '@/_core/hooks/useAuth';
 
 export default function Login() {
   const [, setLocation] = useLocation();
@@ -8,16 +8,7 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-
-  const loginMutation = trpc.auth.login.useMutation({
-    onSuccess: () => {
-      setLocation('/');
-    },
-    onError: (error) => {
-      setError(error.message || 'Đăng nhập thất bại');
-      setIsLoading(false);
-    },
-  });
+  const { login } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,7 +21,14 @@ export default function Login() {
       return;
     }
 
-    loginMutation.mutate({ email, password });
+    try {
+      await login(email, password);
+      setLocation('/');
+    } catch (err: any) {
+      setError(err.message || 'Đăng nhập thất bại');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -39,7 +37,7 @@ export default function Login() {
         {/* Header */}
         <div className="text-center">
           <button
-            onClick={() => setLocation('/')}
+            onClick={() => setLocation('/') }
             className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 mb-6"
           >
             <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -125,10 +123,10 @@ export default function Login() {
             {/* Register Link */}
             <div className="text-center">
               <p className="text-sm text-gray-600">
-                Chưa có tài khoản?{' '}
+                Chưa có tài khoản?{' '} 
                 <button
                   type="button"
-                  onClick={() => setLocation('/register')}
+                  onClick={() => setLocation('/ register')}
                   className="font-medium text-blue-600 hover:text-blue-500"
                 >
                   Đăng ký ngay
@@ -142,7 +140,7 @@ export default function Login() {
         <div className="bg-yellow-50 border-2 border-yellow-200 rounded-xl p-4">
           <p className="text-sm text-yellow-800 font-medium mb-2">💡 Tài khoản demo:</p>
           <p className="text-xs text-yellow-700">
-            Email: <span className="font-mono">demo@example.com</span><br />
+            Email: <span className="font-mono">demo@test.com</span><br />
             Mật khẩu: <span className="font-mono">demo123</span>
           </p>
         </div>
@@ -150,4 +148,3 @@ export default function Login() {
     </div>
   );
 }
-
